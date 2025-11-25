@@ -11,7 +11,7 @@ import { Server, Socket } from 'socket.io';
 
 interface TempRoom {
   users: string[];
-  messages: { sender: string; text: string; timestamp: number }[];
+  messages: { sender: string; text: string; timestamp: number; file?: { name: string; data: string; type: string; size: number } }[];
 }
 
 interface RateLimit {
@@ -144,12 +144,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Send a message
   @SubscribeMessage('sendMessage')
   handleSendMessage(
-    @MessageBody() data: { code: string; text: string },
+    @MessageBody() data: { code: string; text: string; file?: { name: string; data: string; type: string; size: number } },
     @ConnectedSocket() client: Socket,
   ) {
     const room = this.temporaryRooms[data.code];
     if (!room || !room.users.includes(client.id)) return { error: 'Not in room' };
-    const message = { sender: client.id, text: data.text, timestamp: Date.now() };
+    
+    // File size limit (5MB)
+    if (data.file && data.file.size > 5 * 1024 * 1024) {
+      return { error: 'File too large. Maximum size is 5MB.' };
+    }
+    
+    const message = { 
+      sender: client.id, 
+      text: data.text, 
+      timestamp: Date.now(),
+      ...(data.file && { file: data.file })
+    };
     room.messages.push(message);
     this.server.to(data.code).emit('newMessage', message);
     return { success: true };
