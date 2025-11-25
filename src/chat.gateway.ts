@@ -10,6 +10,7 @@ import {
 import { Server, Socket } from 'socket.io';
 
 interface TempRoom {
+  creator: string;
   users: string[];
   messages: { sender: string; text: string; timestamp: number }[];
 }
@@ -101,11 +102,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const code = this.generateCode();
     this.temporaryRooms[code] = {
+      creator: client.id,
       users: [client.id],
       messages: [],
     };
     client.join(code);
-    console.log('Room created with code:', code);
+    console.log('Room created with code:', code, 'Creator:', client.id);
     return { code };
   }
 
@@ -124,16 +126,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { error: 'Room not found' };
     }
     
-    if (room.users.length >= 2) {
-      console.log('Room full:', data.code);
-      return { error: 'Room full' };
-    }
-    
+    const isFirstJoiner = room.users.length === 1;
     room.users.push(client.id);
     client.join(data.code);
     console.log('User joined room:', data.code, 'Users:', room.users.length);
-    this.server.to(data.code).emit('userJoined', { userId: client.id });
-    return { success: true, messages: room.messages };
+    
+    this.server.to(data.code).emit('userJoined', { userId: client.id, totalUsers: room.users.length });
+    
+    return { success: true, messages: room.messages, totalUsers: room.users.length, isFirstJoiner };
   }
 
   @SubscribeMessage('sendMessage')
@@ -143,6 +143,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const room = this.temporaryRooms[data.code];
     if (!room || !room.users.includes(client.id)) return { error: 'Not in room' };
+    
+    if (room.users.length < 2) return { error: 'Need at least 2 users to chat' };
     
     const message = { 
       sender: client.id, 
@@ -162,6 +164,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const room = this.temporaryRooms[data.code];
       if (!room || !room.users.includes(client.id)) return { error: 'Not in room' };
+      
+      if (room.users.length < 2) return { error: 'Need at least 2 users to share files' };
       
       console.log('Sending file:', data.file.name, 'Size:', data.file.size);
       
@@ -183,7 +187,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log('Client', client.id, 'leaving room:', data.code);
     const room = this.temporaryRooms[data.code];
     if (room && room.users.includes(client.id)) {
-      this.destroyRoom(data.code);
+      room.users = room.users.filter((id) => id !== client.id);
+      if (room.users.length === 0) {
+        this.destroyRoom(data.code);
+      } else {
+        this.server.to(data.code).emit('userLeft', { userId: client.id, totalUsers: room.users.length });
+      }
     }
     return { success: true };
   }
@@ -199,9 +208,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const room = this.temporaryRooms[code];
       if (room.users.includes(client.id)) {
         room.users = room.users.filter((id) => id !== client.id);
-        this.server.to(code).emit('userLeft', { userId: client.id });
+        if (room.users.length === 0) {
+          this.destroyRoom(code);
+        } else {
+          this.server.to(code).emit('userLeft', { userId: client.id, totalUsers: room.users.length });
+        }
         console.log('User left room:', code, 'Remaining users:', room.users.length);
-        this.destroyRoom(code);
       }
     }
   }
