@@ -7,6 +7,10 @@ async function bootstrap() {
     origin: ['http://localhost:3000', 'https://m-chat-three.vercel.app'],
     credentials: true,
   });
+  app.use((req, res, next) => {
+    res.setHeader('Content-Length', '10485760');
+    next();
+  });
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
   console.log(`🚀 Backend server running on http://localhost:${port}`);
