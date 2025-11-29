@@ -15,11 +15,6 @@ interface TextRoom {
   messages: { sender: string; text: string; timestamp: number }[];
 }
 
-interface VideoRoom {
-  creator: string;
-  users: string[];
-}
-
 interface RateLimit {
   count: number;
   resetTime: number;
@@ -31,7 +26,7 @@ interface IPTracker {
   blockedUntil?: number;
 }
 
-@WebSocketGateway({ 
+@WebSocketGateway(3002, {
   cors: {
     origin: ['http://localhost:3000', 'https://m-chat-three.vercel.app'],
     credentials: true
@@ -41,20 +36,18 @@ interface IPTracker {
   pingTimeout: 60000,
   transports: ['websocket']
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class TextChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
   private textRooms: Record<string, TextRoom> = {};
-  private videoRooms: Record<string, VideoRoom> = {};
   private ipTracking: Record<string, IPTracker> = {};
 
-  private generateCode(type: 'text' | 'video' = 'text'): string {
+  private generateCode(): string {
     let code;
-    const rooms = type === 'text' ? this.textRooms : this.videoRooms;
     do {
       code = Math.floor(100000 + Math.random() * 900000).toString();
-    } while (rooms[code]);
+    } while (this.textRooms[code]);
     return code;
   }
 
@@ -107,7 +100,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { error: 'Rate limit exceeded. Please try again later.' };
     }
 
-    const code = this.generateCode('text');
+    const code = this.generateCode();
     this.textRooms[code] = {
       creator: client.id,
       users: [client.id],
@@ -195,7 +188,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (room && room.users.includes(client.id)) {
       room.users = room.users.filter((id) => id !== client.id);
       if (room.users.length === 0) {
-        this.destroyTextRoom(data.code);
+        this.destroyRoom(data.code);
       } else {
         this.server.to(data.code).emit('userLeft', { userId: client.id, totalUsers: room.users.length });
       }
@@ -203,131 +196,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { success: true };
   }
 
-  private destroyTextRoom(code: string) {
+  private destroyRoom(code: string) {
     delete this.textRooms[code];
     this.server.to(code).emit('userDisconnected');
   }
 
-  @SubscribeMessage('createVideoRoom')
-  handleCreateVideoRoom(@ConnectedSocket() client: Socket) {
-    const ip = this.getClientIP(client);
-    console.log('Video Call - Creating room for client:', client.id, 'IP:', ip);
-    
-    if (!this.checkRateLimit(ip, 'generation')) {
-      console.log('Rate limit exceeded for IP:', ip);
-      return { error: 'Rate limit exceeded. Please try again later.' };
-    }
-
-    const code = this.generateCode('video');
-    this.videoRooms[code] = {
-      creator: client.id,
-      users: [client.id],
-    };
-    client.join(`video-${code}`);
-    console.log('Video Call - Room created with code:', code, 'Creator:', client.id);
-    return { code };
-  }
-
-  @SubscribeMessage('joinVideoRoom')
-  handleJoinVideoRoom(@MessageBody() data: { code: string }, @ConnectedSocket() client: Socket) {
-    const ip = this.getClientIP(client);
-    console.log('Video Call - Client', client.id, 'trying to join room:', data.code, 'IP:', ip);
-    
-    const room = this.videoRooms[data.code];
-    if (!room) {
-      if (!this.checkRateLimit(ip, 'join')) {
-        console.log('Rate limit exceeded for failed join attempt, IP:', ip);
-        return { error: 'Too many failed attempts. Please try again later.' };
-      }
-      console.log('Video Call - Room not found:', data.code);
-      return { error: 'Room not found' };
-    }
-    
-    room.users.push(client.id);
-    client.join(`video-${data.code}`);
-    console.log('Video Call - User joined room:', data.code, 'Users:', room.users.length);
-    
-    client.to(`video-${data.code}`).emit('userJoined', { userId: client.id, totalUsers: room.users.length });
-    
-    return { success: true, totalUsers: room.users.length };
-  }
-
-  @SubscribeMessage('offer')
-  handleOffer(@MessageBody() data: { offer: any; code: string }, @ConnectedSocket() client: Socket) {
-    console.log('📤 Offer from:', client.id, 'room:', `video-${data.code}`);
-    const room = this.server.sockets.adapter.rooms.get(`video-${data.code}`);
-    console.log('📍 Room members:', room ? Array.from(room) : 'none');
-    client.to(`video-${data.code}`).emit('offer', { offer: data.offer, from: client.id });
-    return { success: true };
-  }
-
-  @SubscribeMessage('answer')
-  handleAnswer(@MessageBody() data: { answer: any; code: string }, @ConnectedSocket() client: Socket) {
-    console.log('📥 Answer from:', client.id, 'room:', `video-${data.code}`);
-    client.to(`video-${data.code}`).emit('answer', { answer: data.answer, from: client.id });
-    return { success: true };
-  }
-
-  @SubscribeMessage('ice-candidate')
-  handleIceCandidate(@MessageBody() data: { candidate: any; code: string }, @ConnectedSocket() client: Socket) {
-    client.to(`video-${data.code}`).emit('ice-candidate', { candidate: data.candidate, from: client.id });
-    return { success: true };
-  }
-
-  @SubscribeMessage('endCall')
-  handleEndCall(@MessageBody() data: { code: string }, @ConnectedSocket() client: Socket) {
-    console.log('Video Call - Client', client.id, 'ending call in room:', data.code);
-    client.to(`video-${data.code}`).emit('callEnded');
-    return { success: true };
-  }
-
-  @SubscribeMessage('leaveVideoRoom')
-  handleLeaveVideoRoom(@MessageBody() data: { code: string }, @ConnectedSocket() client: Socket) {
-    console.log('Video Call - Client', client.id, 'leaving room:', data.code);
-    const room = this.videoRooms[data.code];
-    if (room && room.users.includes(client.id)) {
-      room.users = room.users.filter((id) => id !== client.id);
-      if (room.users.length === 0) {
-        delete this.videoRooms[data.code];
-        this.server.to(`video-${data.code}`).emit('userDisconnected');
-      } else {
-        this.server.to(`video-${data.code}`).emit('userLeft', { userId: client.id, totalUsers: room.users.length });
-      }
-    }
-    return { success: true };
-  }
-
   handleDisconnect(client: Socket) {
-    console.log('Client disconnected:', client.id);
+    console.log('Text Chat - Client disconnected:', client.id);
     for (const code in this.textRooms) {
       const room = this.textRooms[code];
       if (room.users.includes(client.id)) {
         room.users = room.users.filter((id) => id !== client.id);
         if (room.users.length === 0) {
-          this.destroyTextRoom(code);
+          this.destroyRoom(code);
         } else {
           this.server.to(code).emit('userLeft', { userId: client.id, totalUsers: room.users.length });
         }
         console.log('Text Chat - User left room:', code, 'Remaining users:', room.users.length);
       }
     }
-    for (const code in this.videoRooms) {
-      const room = this.videoRooms[code];
-      if (room.users.includes(client.id)) {
-        room.users = room.users.filter((id) => id !== client.id);
-        if (room.users.length === 0) {
-          delete this.videoRooms[code];
-          this.server.to(`video-${code}`).emit('userDisconnected');
-        } else {
-          this.server.to(`video-${code}`).emit('userLeft', { userId: client.id, totalUsers: room.users.length });
-        }
-        console.log('Video Call - User left room:', code, 'Remaining users:', room.users.length);
-      }
-    }
   }
 
   handleConnection(client: Socket) {
-    console.log('Client connected:', client.id);
+    console.log('Text Chat - Client connected:', client.id);
     client.on('disconnect', () => this.handleDisconnect(client));
   }
 }
