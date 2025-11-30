@@ -22,16 +22,7 @@ interface Room {
   };
 }
 
-interface RateLimit {
-  count: number;
-  resetTime: number;
-}
 
-interface IPTracker {
-  codeGenerations: RateLimit;
-  joinAttempts: RateLimit;
-  blockedUntil?: number;
-}
 
 @WebSocketGateway({
   cors: {
@@ -48,7 +39,6 @@ export class UnifiedGateway implements OnGatewayConnection, OnGatewayDisconnect 
   server: Server;
 
   private rooms: Record<string, Room> = {};
-  private ipTracking: Record<string, IPTracker> = {};
 
   private generateCode(): string {
     let code;
@@ -58,44 +48,7 @@ export class UnifiedGateway implements OnGatewayConnection, OnGatewayDisconnect 
     return code;
   }
 
-  private getClientIP(client: Socket): string {
-    return client.handshake.address || client.conn.remoteAddress || 'unknown';
-  }
 
-  private checkRateLimit(ip: string, type: 'generation' | 'join'): boolean {
-    const now = Date.now();
-    
-    if (!this.ipTracking[ip]) {
-      this.ipTracking[ip] = {
-        codeGenerations: { count: 0, resetTime: now + 60000 },
-        joinAttempts: { count: 0, resetTime: now + 60000 }
-      };
-    }
-
-    const tracker = this.ipTracking[ip];
-    
-    if (tracker.blockedUntil && now < tracker.blockedUntil) {
-      return false;
-    }
-
-    const limit = type === 'generation' ? tracker.codeGenerations : tracker.joinAttempts;
-    const maxCount = type === 'generation' ? 5 : 3;
-
-    if (now > limit.resetTime) {
-      limit.count = 0;
-      limit.resetTime = now + 60000;
-    }
-
-    if (limit.count >= maxCount) {
-      if (type === 'join') {
-        tracker.blockedUntil = now + 600000;
-      }
-      return false;
-    }
-
-    limit.count++;
-    return true;
-  }
 
   @SubscribeMessage('createRoom')
   handleCreateRoom(@ConnectedSocket() client: Socket) {
@@ -113,14 +66,8 @@ export class UnifiedGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   private createRoom(client: Socket, type: 'text' | 'video' | 'voice') {
-    const ip = this.getClientIP(client);
-    console.log(`${type.toUpperCase()} - Creating room for client:`, client.id, 'IP:', ip);
+    console.log(`${type.toUpperCase()} - Creating room for client:`, client.id);
     
-    if (!this.checkRateLimit(ip, 'generation')) {
-      console.log('Rate limit exceeded for IP:', ip);
-      return { error: 'Rate limit exceeded. Please try again later.' };
-    }
-
     const code = this.generateCode();
     this.rooms[code] = {
       creator: client.id,
@@ -155,15 +102,10 @@ export class UnifiedGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   private joinRoom(client: Socket, code: string, expectedType: 'text' | 'video' | 'voice') {
-    const ip = this.getClientIP(client);
-    console.log(`${expectedType.toUpperCase()} - Client`, client.id, 'trying to join room:', code, 'IP:', ip);
+    console.log(`${expectedType.toUpperCase()} - Client`, client.id, 'trying to join room:', code);
     
     const room = this.rooms[code];
     if (!room) {
-      if (!this.checkRateLimit(ip, 'join')) {
-        console.log('Rate limit exceeded for failed join attempt, IP:', ip);
-        return { error: 'Too many failed attempts. Please try again later.' };
-      }
       console.log(`${expectedType.toUpperCase()} - Room not found:`, code);
       return { error: 'Room not found' };
     }
