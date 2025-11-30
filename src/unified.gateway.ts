@@ -177,7 +177,7 @@ export class UnifiedGateway implements OnGatewayConnection, OnGatewayDisconnect 
       this.server.to(code).emit('userCount', { count: room.users.length });
     }
     
-    return { success: true, messages: room.messages || [], totalUsers: room.users.length };
+    return { success: true, messages: room.messages || [], totalUsers: room.users.length, roomType: room.type };
   }
 
   @SubscribeMessage('sendMessage')
