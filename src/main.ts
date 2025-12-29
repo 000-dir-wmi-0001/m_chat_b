@@ -1,11 +1,14 @@
 import { NestFactory } from '@nestjs/core';
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import {
+  FastifyAdapter,
+  NestFastifyApplication,
+} from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: true })
+    new FastifyAdapter({ logger: true }),
   );
 
   // Environment configuration
@@ -31,7 +34,6 @@ async function bootstrap() {
   // await app.listen(port);
   await app.listen({ port, host: '0.0.0.0' });
 
-
   console.log(`🚀 Backend server running on http://localhost:${port}`);
   console.log(`📡 WebSocket server ready for connections`);
   console.log(`🔒 CORS origins: ${corsOrigins.join(', ')}`);
@@ -39,7 +41,7 @@ async function bootstrap() {
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 }
 
-bootstrap().catch(err => {
+bootstrap().catch((err) => {
   console.error('❌ Failed to start server:', err);
   process.exit(1);
 });
