@@ -12,7 +12,8 @@ async function bootstrap() {
   const port = parseInt(process.env.PORT || '3001') || 3001;
   const corsOrigins = process.env.CORS_ORIGINS?.split(',') || [
     'http://localhost:3000',
-    'https://m-chat-three.vercel.app'
+    'https://m-chat-three.vercel.app',
+    'https://mchat.momin-mohasin.me',
   ];
 
   // CORS configuration
