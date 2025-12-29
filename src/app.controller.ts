@@ -4,10 +4,10 @@ import { Controller, Get } from '@nestjs/common';
 export class AppController {
   @Get('health')
   healthCheck() {
-    return { 
-      status: 'ok', 
+    return {
+      status: 'ok',
       service: 'M Chat Backend',
-      timestamp: Date.now() 
+      timestamp: Date.now(),
     };
   }
 }
