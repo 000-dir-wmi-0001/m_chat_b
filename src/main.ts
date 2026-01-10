@@ -1,9 +1,13 @@
+import 'dotenv/config'; // Load .env file
 import { NestFactory } from '@nestjs/core';
+import { Logger } from '@nestjs/common';
 import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
+
+const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -31,14 +35,14 @@ async function bootstrap() {
   // await app.listen(port);
   await app.listen({ port, host: '0.0.0.0' });
 
-  console.log(`🚀 Backend server running on http://localhost:${port}`);
-  console.log(`📡 WebSocket server ready for connections`);
-  console.log(`🔒 CORS origins: ${corsOrigins.join(', ')}`);
-  console.log(`⚡ Rate limiting enabled`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.log(`🚀 Backend server running on http://localhost:${port}`);
+  logger.log(`📡 WebSocket server ready for connections`);
+  logger.log(`🔒 CORS origins: ${corsOrigins.join(', ')}`);
+  logger.log(`⚡ Rate limiting enabled`);
+  logger.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 }
 
 bootstrap().catch((err) => {
-  console.error('❌ Failed to start server:', err);
+  logger.error('❌ Failed to start server:', err);
   process.exit(1);
 });
