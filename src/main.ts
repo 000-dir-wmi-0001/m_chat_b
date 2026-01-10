@@ -25,11 +25,8 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Global middleware
-  app.use((req, res, next) => {
-    res.setHeader('Content-Length', '10485760');
-    next();
-  });
+  // Global middleware - Note: Using Fastify, not Express
+  // Content-Length header is handled automatically by Fastify
 
   // await app.listen(port);
   await app.listen({ port, host: '0.0.0.0' });
