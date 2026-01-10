@@ -7,6 +7,7 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
+import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 
 interface Room {
@@ -51,13 +52,15 @@ interface FileTransfer {
 export class UnifiedGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
+  private readonly logger = new Logger(UnifiedGateway.name);
+
   @WebSocketServer()
   server: Server;
 
   private rooms: Record<string, Room> = {};
   private fileTransfers: Map<string, FileTransfer> = new Map();
   private readonly MAX_FILE_SIZE = Number.MAX_SAFE_INTEGER; // No limit - P2P handles any size
-  private readonly CHUNK_SIZE = 64 * 1024; // 64KB chunks
+  private readonly CHUNK_SIZE = 64 * 1024; // 64KB chunks (consistent with frontend)
   private readonly TRANSFER_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
   private generateCode(): string {
@@ -84,7 +87,7 @@ export class UnifiedGateway
   }
 
   private createRoom(client: Socket, type: 'text' | 'video' | 'voice') {
-    console.log(`${type.toUpperCase()} - Creating room for client:`, client.id);
+    this.logger.log(`${type.toUpperCase()} - Creating room for client: ${client.id}`);
 
     const code = this.generateCode();
     this.rooms[code] = {
@@ -103,11 +106,8 @@ export class UnifiedGateway
           : undefined,
     };
     void client.join(code);
-    console.log(
-      `${type.toUpperCase()} - Room created with code:`,
-      code,
-      'Creator:',
-      client.id,
+    this.logger.log(
+      `${type.toUpperCase()} - Room created with code: ${code} Creator: ${client.id}`,
     );
     return { code };
   }
@@ -141,26 +141,20 @@ export class UnifiedGateway
     code: string,
     expectedType: 'text' | 'video' | 'voice',
   ) {
-    console.log(
-      `${expectedType.toUpperCase()} - Client`,
-      client.id,
-      'trying to join room:',
-      code,
+    this.logger.log(
+      `${expectedType.toUpperCase()} - Client ${client.id} trying to join room: ${code}`,
     );
 
     const room = this.rooms[code];
     if (!room) {
-      console.log(`${expectedType.toUpperCase()} - Room not found:`, code);
+      this.logger.warn(`${expectedType.toUpperCase()} - Room not found: ${code}`);
       return { error: 'Room not found' };
     }
 
     room.users.push(client.id);
     void client.join(code);
-    console.log(
-      `${room.type.toUpperCase()} - User joined room:`,
-      code,
-      'Users:',
-      room.users.length,
+    this.logger.log(
+      `${room.type.toUpperCase()} - User joined room: ${code} Users: ${room.users.length}`,
     );
 
     this.server
@@ -241,11 +235,8 @@ export class UnifiedGateway
       if (room.users.length < 2)
         return { error: 'Need at least 2 users to share files' };
 
-      console.log(
-        'Starting chunked file transfer:',
-        data.file.name,
-        'Size:',
-        data.file.size,
+      this.logger.log(
+        `Starting chunked file transfer: ${data.file.name} Size: ${data.file.size}`,
       );
 
       // Calculate number of chunks needed (will be sent by client)
@@ -278,7 +269,7 @@ export class UnifiedGateway
 
       return { success: true, transferId, totalChunks };
     } catch (error) {
-      console.error('Error starting file transfer:', error);
+      this.logger.error('Error starting file transfer:', error);
       return { error: 'Failed to start file transfer' };
     }
   }
@@ -403,7 +394,7 @@ export class UnifiedGateway
       enabled: data.enabled,
     });
 
-    console.log(
+    this.logger.log(
       `User ${client.id} ${data.enabled ? 'enabled' : 'disabled'} ${data.trackKind} track in room ${data.code}`,
     );
     return { success: true };
@@ -414,7 +405,7 @@ export class UnifiedGateway
     @MessageBody() data: { code: string },
     @ConnectedSocket() client: Socket,
   ) {
-    console.log('Client', client.id, 'ending call in room:', data.code);
+    this.logger.log(`Client ${client.id} ending call in room: ${data.code}`);
     // Notify all users in the room that call ended
     this.server.to(data.code).emit('callEnded', { endedBy: client.id });
     // Destroy the room to force redirect
@@ -452,7 +443,7 @@ export class UnifiedGateway
   }
 
   private leaveRoom(client: Socket, code: string) {
-    console.log('Client', client.id, 'leaving room:', code);
+    this.logger.log(`Client ${client.id} leaving room: ${code}`);
     const room = this.rooms[code];
     if (room && room.users.includes(client.id)) {
       room.users = room.users.filter((id) => id !== client.id);
@@ -477,7 +468,7 @@ export class UnifiedGateway
   }
 
   handleDisconnect(client: Socket) {
-    console.log('Client disconnected:', client.id);
+    this.logger.log(`Client disconnected: ${client.id}`);
 
     // Clean up file transfers for disconnected user
     for (const [transferId, transfer] of this.fileTransfers.entries()) {
@@ -578,6 +569,6 @@ export class UnifiedGateway
   }
 
   handleConnection(client: Socket) {
-    console.log('Client connected:', client.id);
+    this.logger.log(`Client connected: ${client.id}`);
   }
 }
