@@ -61,7 +61,7 @@ export class UnifiedGateway
   private readonly TRANSFER_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
   private generateCode(): string {
-    let code;
+    let code: string;
     do {
       code = Math.floor(100000 + Math.random() * 900000).toString();
     } while (this.rooms[code]);
@@ -102,7 +102,7 @@ export class UnifiedGateway
             }
           : undefined,
     };
-    client.join(code);
+    void client.join(code);
     console.log(
       `${type.toUpperCase()} - Room created with code:`,
       code,
@@ -155,7 +155,7 @@ export class UnifiedGateway
     }
 
     room.users.push(client.id);
-    client.join(code);
+    void client.join(code);
     console.log(
       `${room.type.toUpperCase()} - User joined room:`,
       code,
@@ -349,13 +349,14 @@ export class UnifiedGateway
 
   @SubscribeMessage('offer')
   handleOffer(
-    @MessageBody() data: { offer: any; code: string },
+    @MessageBody() data: { offer: RTCSessionDescriptionInit; code: string },
     @ConnectedSocket() client: Socket,
   ) {
     const room = this.rooms[data.code];
     const offerData = {
       offer: data.offer,
       from: client.id,
+      roomType: room?.type,
       audioSettings: room?.audioSettings,
     };
     client.to(data.code).emit('offer', offerData);
@@ -364,7 +365,7 @@ export class UnifiedGateway
 
   @SubscribeMessage('answer')
   handleAnswer(
-    @MessageBody() data: { answer: any; code: string },
+    @MessageBody() data: { answer: RTCSessionDescriptionInit; code: string },
     @ConnectedSocket() client: Socket,
   ) {
     client
@@ -375,7 +376,7 @@ export class UnifiedGateway
 
   @SubscribeMessage('ice-candidate')
   handleIceCandidate(
-    @MessageBody() data: { candidate: any; code: string },
+    @MessageBody() data: { candidate: RTCIceCandidateInit; code: string },
     @ConnectedSocket() client: Socket,
   ) {
     client
@@ -384,27 +385,27 @@ export class UnifiedGateway
     return { success: true };
   }
 
-  @SubscribeMessage('audioQuality')
-  handleAudioQuality(
-    @MessageBody() data: { code: string; quality: 'low' | 'medium' | 'high' },
+  @SubscribeMessage('trackUpdate')
+  handleTrackUpdate(
+    @MessageBody()
+    data: { code: string; trackKind: 'audio' | 'video'; enabled: boolean },
     @ConnectedSocket() client: Socket,
   ) {
     const room = this.rooms[data.code];
-    if (room?.type === 'voice' && room.audioSettings) {
-      // Adjust settings based on network quality
-      switch (data.quality) {
-        case 'low':
-          room.audioSettings.sampleRate = 16000;
-          break;
-        case 'medium':
-          room.audioSettings.sampleRate = 24000;
-          break;
-        case 'high':
-          room.audioSettings.sampleRate = 48000;
-          break;
-      }
-      client.to(data.code).emit('audioSettingsUpdate', room.audioSettings);
+    if (!room || !room.users.includes(client.id)) {
+      return { error: 'Not in room' };
     }
+
+    // Notify other users about track state change
+    client.to(data.code).emit('trackStateChanged', {
+      userId: client.id,
+      trackKind: data.trackKind,
+      enabled: data.enabled,
+    });
+
+    console.log(
+      `User ${client.id} ${data.enabled ? 'enabled' : 'disabled'} ${data.trackKind} track in room ${data.code}`,
+    );
     return { success: true };
   }
 
