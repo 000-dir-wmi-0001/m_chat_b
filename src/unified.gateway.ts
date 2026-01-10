@@ -36,7 +36,10 @@ interface FileTransfer {
 
 @WebSocketGateway({
   cors: {
-    origin: ['http://localhost:3000', 'https://m-chat-three.vercel.app', 'https://mchat.momin-mohasin.me'
+    origin: [
+      'http://localhost:3000',
+      'https://m-chat-three.vercel.app',
+      'https://mchat.momin-mohasin.me',
     ],
     credentials: true,
   },
@@ -46,7 +49,8 @@ interface FileTransfer {
   transports: ['websocket'],
 })
 export class UnifiedGateway
-  implements OnGatewayConnection, OnGatewayDisconnect {
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 
@@ -91,11 +95,11 @@ export class UnifiedGateway
       audioSettings:
         type === 'voice'
           ? {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            sampleRate: 48000,
-          }
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              sampleRate: 48000,
+            }
           : undefined,
     };
     client.join(code);
@@ -196,6 +200,30 @@ export class UnifiedGateway
     return { success: true };
   }
 
+  @SubscribeMessage('userTyping')
+  handleUserTyping(
+    @MessageBody() data: { roomCode: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const room = this.rooms[data.roomCode];
+    if (!room || !room.users.includes(client.id)) return;
+
+    // Broadcast typing event to all other users in the room
+    client.to(data.roomCode).emit('userTyping', { userId: client.id });
+  }
+
+  @SubscribeMessage('stopTyping')
+  handleStopTyping(
+    @MessageBody() data: { roomCode: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const room = this.rooms[data.roomCode];
+    if (!room || !room.users.includes(client.id)) return;
+
+    // Broadcast stop typing event to all other users in the room
+    client.to(data.roomCode).emit('userStopTyping', { userId: client.id });
+  }
+
   @SubscribeMessage('sendFile')
   handleSendFile(
     @MessageBody()
@@ -213,7 +241,12 @@ export class UnifiedGateway
       if (room.users.length < 2)
         return { error: 'Need at least 2 users to share files' };
 
-      console.log('Starting chunked file transfer:', data.file.name, 'Size:', data.file.size);
+      console.log(
+        'Starting chunked file transfer:',
+        data.file.name,
+        'Size:',
+        data.file.size,
+      );
 
       // Calculate number of chunks needed (will be sent by client)
       const totalChunks = Math.ceil(data.file.size / this.CHUNK_SIZE);
@@ -223,7 +256,7 @@ export class UnifiedGateway
       const transfer: FileTransfer = {
         id: transferId,
         sender: client.id,
-        receiver: room.users.find(id => id !== client.id)!, // Assume 2-user rooms
+        receiver: room.users.find((id) => id !== client.id)!, // Assume 2-user rooms
         fileName: data.file.name,
         fileSize: data.file.size,
         fileType: data.file.type,
@@ -240,7 +273,7 @@ export class UnifiedGateway
         fileName: data.file.name,
         fileSize: data.file.size,
         fileType: data.file.type,
-        totalChunks
+        totalChunks,
       });
 
       return { success: true, transferId, totalChunks };
@@ -252,7 +285,8 @@ export class UnifiedGateway
 
   @SubscribeMessage('fileChunk')
   handleFileChunk(
-    @MessageBody() data: {
+    @MessageBody()
+    data: {
       transferId: string;
       chunkIndex: number;
       totalChunks: number;
@@ -279,7 +313,9 @@ export class UnifiedGateway
     if (transfer.receivedChunks === transfer.totalChunks) {
       // Notify completion
       setTimeout(() => {
-        this.server.to(transfer.receiver).emit('fileTransferComplete', { transferId: data.transferId });
+        this.server
+          .to(transfer.receiver)
+          .emit('fileTransferComplete', { transferId: data.transferId });
         // Clean up transfer immediately after completion
         this.fileTransfers.delete(data.transferId);
       }, 100);
@@ -300,7 +336,9 @@ export class UnifiedGateway
       for (const roomCode in this.rooms) {
         const room = this.rooms[roomCode];
         if (room.users.includes(client.id)) {
-          this.server.to(roomCode).emit('fileTransferCancelled', { transferId: data.transferId });
+          this.server
+            .to(roomCode)
+            .emit('fileTransferCancelled', { transferId: data.transferId });
           break;
         }
       }
@@ -470,18 +508,23 @@ export class UnifiedGateway
 
   @SubscribeMessage('p2pOffer')
   handleP2POffer(
-    @MessageBody() data: { roomCode: string; transferId: string; offer: RTCSessionDescriptionInit },
+    @MessageBody()
+    data: {
+      roomCode: string;
+      transferId: string;
+      offer: RTCSessionDescriptionInit;
+    },
     @ConnectedSocket() client: Socket,
   ) {
     // Forward offer to other user in room
     const room = this.rooms[data.roomCode];
     if (room) {
-      const otherUser = room.users.find(id => id !== client.id);
+      const otherUser = room.users.find((id) => id !== client.id);
       if (otherUser) {
         this.server.to(otherUser).emit('p2pOffer', {
           transferId: data.transferId,
           offer: data.offer,
-          roomCode: data.roomCode
+          roomCode: data.roomCode,
         });
       }
     }
@@ -489,17 +532,22 @@ export class UnifiedGateway
 
   @SubscribeMessage('p2pAnswer')
   handleP2PAnswer(
-    @MessageBody() data: { roomCode: string; transferId: string; answer: RTCSessionDescriptionInit },
+    @MessageBody()
+    data: {
+      roomCode: string;
+      transferId: string;
+      answer: RTCSessionDescriptionInit;
+    },
     @ConnectedSocket() client: Socket,
   ) {
     // Forward answer to other user in room
     const room = this.rooms[data.roomCode];
     if (room) {
-      const otherUser = room.users.find(id => id !== client.id);
+      const otherUser = room.users.find((id) => id !== client.id);
       if (otherUser) {
         this.server.to(otherUser).emit('p2pAnswer', {
           transferId: data.transferId,
-          answer: data.answer
+          answer: data.answer,
         });
       }
     }
@@ -507,17 +555,22 @@ export class UnifiedGateway
 
   @SubscribeMessage('p2pIceCandidate')
   handleP2PIceCandidate(
-    @MessageBody() data: { roomCode: string; transferId: string; candidate: RTCIceCandidateInit },
+    @MessageBody()
+    data: {
+      roomCode: string;
+      transferId: string;
+      candidate: RTCIceCandidateInit;
+    },
     @ConnectedSocket() client: Socket,
   ) {
     // Forward ICE candidate to other user in room
     const room = this.rooms[data.roomCode];
     if (room) {
-      const otherUser = room.users.find(id => id !== client.id);
+      const otherUser = room.users.find((id) => id !== client.id);
       if (otherUser) {
         this.server.to(otherUser).emit('p2pIceCandidate', {
           transferId: data.transferId,
-          candidate: data.candidate
+          candidate: data.candidate,
         });
       }
     }
