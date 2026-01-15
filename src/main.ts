@@ -1,6 +1,7 @@
 import 'dotenv/config'; // Load .env file
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   FastifyAdapter,
   NestFastifyApplication,
@@ -15,13 +16,34 @@ async function bootstrap() {
     new FastifyAdapter({ logger: true }),
   );
 
+  // Get configuration service
+  const configService = app.get(ConfigService);
+
   // Environment configuration
-  const port = parseInt(process.env.PORT || '3001') || 3001;
-  const corsOrigins = process.env.CORS_ORIGINS?.split(',') || [
-    'http://localhost:3000',
-    'https://m-chat-three.vercel.app',
-    'https://mchat.momin-mohasin.me',
-  ];
+  const port = configService.get<number>('PORT') || 3001;
+  
+  // Get NODE_ENV with getOrThrow for strict validation
+  let nodeEnv = 'development';
+  try {
+    nodeEnv = configService.getOrThrow<string>('NODE_ENV');
+  } catch (error) {
+    // Default to development if not set
+    nodeEnv = 'development';
+  }
+  
+  // Get CORS origins with fallback
+  let corsOrigins: string[] = [];
+  try {
+    const corsOriginStr = configService.getOrThrow<string>('CORS_ORIGINS');
+    corsOrigins = corsOriginStr.split(',').map(o => o.trim());
+  } catch (error) {
+    // Fallback to default origins if not configured
+    corsOrigins = [
+      'http://localhost:3000',
+      'https://m-chat-three.vercel.app',
+      'https://mchat.momin-mohasin.me',
+    ];
+  }
 
   // CORS configuration
   app.enableCors({
@@ -39,7 +61,7 @@ async function bootstrap() {
   logger.log(`📡 WebSocket server ready for connections`);
   logger.log(`🔒 CORS origins: ${corsOrigins.join(', ')}`);
   logger.log(`⚡ Rate limiting enabled`);
-  logger.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.log(`🌍 Environment: ${nodeEnv}`);
 }
 
 bootstrap().catch((err) => {
