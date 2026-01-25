@@ -647,7 +647,7 @@ export class UnifiedGateway
 
   @SubscribeMessage('offer')
   handleOffer(
-    @MessageBody() data: { offer: RTCSessionDescriptionInit; code: string },
+    @MessageBody() data: { offer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean },
     @ConnectedSocket() client: Socket,
   ) {
     const room = this.rooms[data.code];
@@ -656,6 +656,7 @@ export class UnifiedGateway
       from: client.id,
       roomType: room?.type,
       audioSettings: room?.audioSettings,
+      isScreenShare: data.isScreenShare,
     };
     client.to(data.code).emit('offer', offerData);
     return { success: true };
@@ -663,23 +664,23 @@ export class UnifiedGateway
 
   @SubscribeMessage('answer')
   handleAnswer(
-    @MessageBody() data: { answer: RTCSessionDescriptionInit; code: string },
+    @MessageBody() data: { answer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean },
     @ConnectedSocket() client: Socket,
   ) {
     client
       .to(data.code)
-      .emit('answer', { answer: data.answer, from: client.id });
+      .emit('answer', { answer: data.answer, from: client.id, isScreenShare: data.isScreenShare });
     return { success: true };
   }
 
   @SubscribeMessage('ice-candidate')
   handleIceCandidate(
-    @MessageBody() data: { candidate: RTCIceCandidateInit; code: string },
+    @MessageBody() data: { candidate: RTCIceCandidateInit; code: string; isScreenShare?: boolean },
     @ConnectedSocket() client: Socket,
   ) {
     client
       .to(data.code)
-      .emit('ice-candidate', { candidate: data.candidate, from: client.id });
+      .emit('ice-candidate', { candidate: data.candidate, from: client.id, isScreenShare: data.isScreenShare });
     return { success: true };
   }
 
