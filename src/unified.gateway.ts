@@ -707,6 +707,80 @@ export class UnifiedGateway
     return { success: true };
   }
 
+  @SubscribeMessage('requestVideoCall')
+  handleRequestVideoCall(
+    @MessageBody() data: { roomCode: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const room = this.rooms[data.roomCode];
+    if (!room || !room.users.includes(client.id)) {
+      return { error: 'Not in room' };
+    }
+
+    // Broadcast request to other users in the room
+    client.to(data.roomCode).emit('incomingVideoCall', { from: client.id });
+    this.logger.log(`User ${client.id} requested video call in room ${data.roomCode}`);
+    return { success: true };
+  }
+
+  @SubscribeMessage('respondVideoCall')
+  handleRespondVideoCall(
+    @MessageBody() data: { roomCode: string; accepted: boolean },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const room = this.rooms[data.roomCode];
+    if (!room || !room.users.includes(client.id)) {
+      return { error: 'Not in room' };
+    }
+
+    // Broadcast response to other users
+    client.to(data.roomCode).emit('videoCallResponse', {
+      from: client.id,
+      accepted: data.accepted
+    });
+    this.logger.log(
+      `User ${client.id} ${data.accepted ? 'accepted' : 'rejected'} video call in room ${data.roomCode}`
+    );
+    return { success: true };
+  }
+
+  @SubscribeMessage('requestVoiceCall')
+  handleRequestVoiceCall(
+    @MessageBody() data: { roomCode: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const room = this.rooms[data.roomCode];
+    if (!room || !room.users.includes(client.id)) {
+      return { error: 'Not in room' };
+    }
+
+    // Broadcast request to other users in the room
+    client.to(data.roomCode).emit('incomingVoiceCall', { from: client.id });
+    this.logger.log(`User ${client.id} requested voice call in room ${data.roomCode}`);
+    return { success: true };
+  }
+
+  @SubscribeMessage('respondVoiceCall')
+  handleRespondVoiceCall(
+    @MessageBody() data: { roomCode: string; accepted: boolean },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const room = this.rooms[data.roomCode];
+    if (!room || !room.users.includes(client.id)) {
+      return { error: 'Not in room' };
+    }
+
+    // Broadcast response to other users
+    client.to(data.roomCode).emit('voiceCallResponse', {
+      from: client.id,
+      accepted: data.accepted
+    });
+    this.logger.log(
+      `User ${client.id} ${data.accepted ? 'accepted' : 'rejected'} voice call in room ${data.roomCode}`
+    );
+    return { success: true };
+  }
+
   @SubscribeMessage('endCall')
   handleEndCall(
     @MessageBody() data: { code: string },
