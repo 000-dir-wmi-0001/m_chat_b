@@ -13,7 +13,7 @@ export class AppController {
   // Get allowed origins from config or use defaults
   private getAllowedOrigins(): string[] {
     try {
-      const origins = this.configService.getOrThrow<string>('ALLOWED_ORIGINS');
+      const origins = this.configService.getOrThrow<string>('CORS_ORIGINS');
       return origins.split(',').map(o => o.trim());
     } catch (error) {
       // Fallback to defaults if not configured
@@ -80,11 +80,8 @@ export class AppController {
       throw new ForbiddenException('Unauthorized origin');
     }
 
-    // Build ICE servers array - always include STUN servers as fallback
-    const iceServers: any[] = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ];
+    // Build ICE servers array - no Google STUN for privacy
+    const iceServers: any[] = [];
 
     // If TURN server is configured, add it with credentials
     if (turnSecret && turnUrl) {
@@ -100,9 +97,13 @@ export class AppController {
       hmac.update(username);
       const credential = hmac.digest('base64');
 
-      // Add TURN server as PRIMARY (before STUN servers for preference)
-      iceServers.unshift({
-        urls: [`turn:${turnUrl}:${turnPort}`, `turn:${turnUrl}:${turnPort}?transport=tcp`],
+      // Add TURN server (also functions as STUN)
+      iceServers.push({
+        urls: [
+          `stun:${turnUrl}:${turnPort}`,  // STUN on same server
+          `turn:${turnUrl}:${turnPort}`,
+          `turn:${turnUrl}:${turnPort}?transport=tcp`
+        ],
         username: username,
         credential: credential,
       });
@@ -117,15 +118,15 @@ export class AppController {
       };
     }
 
-    // TURN server not configured - log warning and return STUN-only
-    this.logger.warn('⚠️  TURN server not configured - using STUN only. Set TURN_SECRET, TURN_URL, and TURN_PORT env variables for full functionality.');
+    // TURN server not configured - log warning
+    this.logger.warn('⚠️  TURN server not configured! Set TURN_SECRET, TURN_URL, and TURN_PORT env variables. WebRTC will not work without it.');
     
     return {
       iceServers,
       ttl: null,
       expiresAt: null,
       turnConfigured: false,
-      warning: 'TURN server not configured. Peer-to-peer connections may fail on restricted networks.',
+      error: 'TURN server not configured. WebRTC connections will fail.',
     };
   }
 }
