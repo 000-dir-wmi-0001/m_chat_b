@@ -647,7 +647,7 @@ export class UnifiedGateway
 
   @SubscribeMessage('offer')
   handleOffer(
-    @MessageBody() data: { offer: RTCSessionDescriptionInit; code: string },
+    @MessageBody() data: { offer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean; streamType?: string },
     @ConnectedSocket() client: Socket,
   ) {
     const room = this.rooms[data.code];
@@ -656,6 +656,8 @@ export class UnifiedGateway
       from: client.id,
       roomType: room?.type,
       audioSettings: room?.audioSettings,
+      isScreenShare: data.isScreenShare,
+      streamType: data.streamType,
     };
     client.to(data.code).emit('offer', offerData);
     return { success: true };
@@ -663,23 +665,33 @@ export class UnifiedGateway
 
   @SubscribeMessage('answer')
   handleAnswer(
-    @MessageBody() data: { answer: RTCSessionDescriptionInit; code: string },
+    @MessageBody() data: { answer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean; streamType?: string },
     @ConnectedSocket() client: Socket,
   ) {
     client
       .to(data.code)
-      .emit('answer', { answer: data.answer, from: client.id });
+      .emit('answer', {
+        answer: data.answer,
+        from: client.id,
+        isScreenShare: data.isScreenShare,
+        streamType: data.streamType
+      });
     return { success: true };
   }
 
   @SubscribeMessage('ice-candidate')
   handleIceCandidate(
-    @MessageBody() data: { candidate: RTCIceCandidateInit; code: string },
+    @MessageBody() data: { candidate: RTCIceCandidateInit; code: string; isScreenShare?: boolean; streamType?: string },
     @ConnectedSocket() client: Socket,
   ) {
     client
       .to(data.code)
-      .emit('ice-candidate', { candidate: data.candidate, from: client.id });
+      .emit('ice-candidate', {
+        candidate: data.candidate,
+        from: client.id,
+        isScreenShare: data.isScreenShare,
+        streamType: data.streamType
+      });
     return { success: true };
   }
 
@@ -704,6 +716,19 @@ export class UnifiedGateway
     this.logger.log(
       `User ${client.id} ${data.enabled ? 'enabled' : 'disabled'} ${data.trackKind} track in room ${data.code}`,
     );
+    return { success: true };
+  }
+
+  @SubscribeMessage('screenShareUpdate')
+  handleScreenShareUpdate(
+    @MessageBody() data: { code: string; isSharing: boolean },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.to(data.code).emit('remoteScreenShareUpdate', {
+      userId: client.id,
+      isSharing: data.isSharing,
+    });
+    this.logger.log(`User ${client.id} ${data.isSharing ? 'started' : 'stopped'} screen share in room ${data.code}`);
     return { success: true };
   }
 
