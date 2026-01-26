@@ -647,7 +647,7 @@ export class UnifiedGateway
 
   @SubscribeMessage('offer')
   handleOffer(
-    @MessageBody() data: { offer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean },
+    @MessageBody() data: { offer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean; streamType?: string },
     @ConnectedSocket() client: Socket,
   ) {
     const room = this.rooms[data.code];
@@ -657,6 +657,7 @@ export class UnifiedGateway
       roomType: room?.type,
       audioSettings: room?.audioSettings,
       isScreenShare: data.isScreenShare,
+      streamType: data.streamType,
     };
     client.to(data.code).emit('offer', offerData);
     return { success: true };
@@ -664,23 +665,33 @@ export class UnifiedGateway
 
   @SubscribeMessage('answer')
   handleAnswer(
-    @MessageBody() data: { answer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean },
+    @MessageBody() data: { answer: RTCSessionDescriptionInit; code: string; isScreenShare?: boolean; streamType?: string },
     @ConnectedSocket() client: Socket,
   ) {
     client
       .to(data.code)
-      .emit('answer', { answer: data.answer, from: client.id, isScreenShare: data.isScreenShare });
+      .emit('answer', {
+        answer: data.answer,
+        from: client.id,
+        isScreenShare: data.isScreenShare,
+        streamType: data.streamType
+      });
     return { success: true };
   }
 
   @SubscribeMessage('ice-candidate')
   handleIceCandidate(
-    @MessageBody() data: { candidate: RTCIceCandidateInit; code: string; isScreenShare?: boolean },
+    @MessageBody() data: { candidate: RTCIceCandidateInit; code: string; isScreenShare?: boolean; streamType?: string },
     @ConnectedSocket() client: Socket,
   ) {
     client
       .to(data.code)
-      .emit('ice-candidate', { candidate: data.candidate, from: client.id, isScreenShare: data.isScreenShare });
+      .emit('ice-candidate', {
+        candidate: data.candidate,
+        from: client.id,
+        isScreenShare: data.isScreenShare,
+        streamType: data.streamType
+      });
     return { success: true };
   }
 
