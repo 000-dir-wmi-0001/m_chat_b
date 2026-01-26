@@ -708,6 +708,19 @@ export class UnifiedGateway
     return { success: true };
   }
 
+  @SubscribeMessage('screenShareUpdate')
+  handleScreenShareUpdate(
+    @MessageBody() data: { code: string; isSharing: boolean },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.to(data.code).emit('remoteScreenShareUpdate', {
+      userId: client.id,
+      isSharing: data.isSharing,
+    });
+    this.logger.log(`User ${client.id} ${data.isSharing ? 'started' : 'stopped'} screen share in room ${data.code}`);
+    return { success: true };
+  }
+
   @SubscribeMessage('requestVideoCall')
   handleRequestVideoCall(
     @MessageBody() data: { roomCode: string },
