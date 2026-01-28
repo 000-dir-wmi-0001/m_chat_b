@@ -194,7 +194,7 @@ export class UnifiedGateway
     'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     // Archives
-    'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed', 'application/gzip',
+    'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/x-7z-compressed', 'application/gzip',
     // Audio
     'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4',
     // Video
