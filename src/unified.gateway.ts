@@ -12,6 +12,7 @@ import { Logger, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import { RedisService } from './redis/redis.service';
 
 interface Room {
   creator: string;
@@ -66,7 +67,10 @@ export class UnifiedGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
   private readonly logger = new Logger(UnifiedGateway.name);
 
-  constructor(private configService: ConfigService) { }
+  constructor(
+    private configService: ConfigService,
+    private redisService: RedisService
+  ) { }
 
   // Initialize cleanup timer
   onModuleInit() {
@@ -80,10 +84,7 @@ export class UnifiedGateway
       this.cleanupInactiveRooms();
     }, this.CLEANUP_INTERVAL);
 
-    // Set up periodic cleanup of rate limit data
-    setInterval(() => {
-      this.cleanupRateLimitData();
-    }, this.RATE_LIMIT_CLEANUP_INTERVAL);
+
 
     this.logger.log('Memory cleanup timers initialized');
   }
@@ -120,6 +121,10 @@ export class UnifiedGateway
       if (room.users.length === 0 || (now - lastActivity > this.ROOM_INACTIVITY_TIMEOUT)) {
         delete this.rooms[code];
         this.roomLastActivity.delete(code);
+        // Explicitly remove from Redis to free up space
+        if (this.redisService.isAvailable()) {
+          void this.redisService.delete(`room:${code}`);
+        }
         cleanedCount++;
         this.logger.log(`Cleaned up inactive room: ${code}`);
       }
@@ -130,22 +135,7 @@ export class UnifiedGateway
     }
   }
 
-  // Cleanup expired rate limit entries
-  private cleanupRateLimitData() {
-    const now = Date.now();
-    let cleanedCount = 0;
 
-    for (const [clientId, data] of this.roomJoinAttempts.entries()) {
-      if (now - data.lastAttempt > this.JOIN_COOLDOWN * 2) {
-        this.roomJoinAttempts.delete(clientId);
-        cleanedCount++;
-      }
-    }
-
-    if (cleanedCount > 0) {
-      this.logger.log(`Rate limit cleanup: removed ${cleanedCount} expired entries`);
-    }
-  }
 
   // Update room activity timestamp
   private updateRoomActivity(code: string) {
@@ -179,7 +169,7 @@ export class UnifiedGateway
   private readonly CLEANUP_INTERVAL = 10 * 60 * 1000; // 10 minutes cleanup interval
 
   // Memory optimization constants
-  private readonly MAX_MESSAGES_PER_ROOM = 100; // Limit stored messages
+  private readonly MAX_MESSAGES_PER_ROOM = 50; // Reduced from 100 to save Redis memory (30MB limit)
   private readonly ROOM_INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 min inactive = cleanup
   private readonly RATE_LIMIT_CLEANUP_INTERVAL = 5 * 60 * 1000; // Clean rate limits every 5 min
   private roomLastActivity: Map<string, number> = new Map(); // Track room activity
@@ -213,9 +203,7 @@ export class UnifiedGateway
   ]);
 
   // Rate limiting for room joins (prevent brute force)
-  private roomJoinAttempts: Map<string, { count: number; lastAttempt: number }> = new Map();
   private readonly MAX_JOIN_ATTEMPTS = 5; // Max attempts per minute
-  private readonly JOIN_COOLDOWN = 60 * 1000; // 1 minute cooldown
 
   // Input validation and sanitization utilities
   private validateAndSanitizeMessage(text: string): { isValid: boolean; sanitizedText?: string; error?: string } {
@@ -286,32 +274,51 @@ export class UnifiedGateway
     return { isValid: true };
   }
 
-  // Check rate limiting for room joins
-  private checkJoinRateLimit(clientId: string): { allowed: boolean; error?: string } {
-    const now = Date.now();
-    const attempts = this.roomJoinAttempts.get(clientId);
+  // Check rate limiting for room joins (using Redis)
+  private async checkJoinRateLimit(clientId: string): Promise<{ allowed: boolean; error?: string }> {
+    const key = `rate_limit:join:${clientId}`;
 
-    if (attempts) {
-      // Reset if cooldown has passed
-      if (now - attempts.lastAttempt > this.JOIN_COOLDOWN) {
-        this.roomJoinAttempts.set(clientId, { count: 1, lastAttempt: now });
-        return { allowed: true };
-      }
+    // Increment count
+    const count = await this.redisService.incr(key);
 
-      // Check if too many attempts
-      if (attempts.count >= this.MAX_JOIN_ATTEMPTS) {
-        const remainingTime = Math.ceil((this.JOIN_COOLDOWN - (now - attempts.lastAttempt)) / 1000);
-        return { allowed: false, error: `Too many join attempts. Please wait ${remainingTime} seconds.` };
-      }
+    // Set expiry if first attempt
+    if (count === 1) {
+      await this.redisService.expire(key, 60); // 60 seconds TTL
+    }
 
-      // Increment counter
-      attempts.count++;
-      attempts.lastAttempt = now;
-    } else {
-      this.roomJoinAttempts.set(clientId, { count: 1, lastAttempt: now });
+    // Check limit
+    if (count > this.MAX_JOIN_ATTEMPTS) {
+      return { allowed: false, error: 'Too many join attempts. Please wait a minute.' };
     }
 
     return { allowed: true };
+  }
+
+  // Sync room with Redis
+  private async syncRoomToRedis(code: string) {
+    const room = this.rooms[code];
+    if (room && this.redisService.isAvailable()) {
+      // Store in Redis with shorter TTL (1 hour) to respect 30MB limit
+      await this.redisService.set(`room:${code}`, JSON.stringify(room), 3600);
+    }
+  }
+
+  // Load room from Redis if not in memory
+  private async loadRoomFromRedis(code: string): Promise<Room | null> {
+    if (this.redisService.isAvailable()) {
+      const data = await this.redisService.get(`room:${code}`);
+      if (data) {
+        try {
+          const room = JSON.parse(data) as Room;
+          // Cache in memory
+          this.rooms[code] = room;
+          return room;
+        } catch (e) {
+          this.logger.error(`Failed to parse room data from Redis for ${code}`);
+        }
+      }
+    }
+    return null;
   }
 
   private generateCode(): string {
@@ -362,6 +369,9 @@ export class UnifiedGateway
     // Track room activity for cleanup
     this.updateRoomActivity(code);
 
+    // Persist to Redis
+    void this.syncRoomToRedis(code);
+
     void client.join(code);
     this.logger.log(
       `${type.toUpperCase()} - Room created with code: ${code} Creator: ${client.id}`,
@@ -393,7 +403,7 @@ export class UnifiedGateway
     return this.joinRoom(client, data.code, 'voice');
   }
 
-  private joinRoom(
+  private async joinRoom(
     client: Socket,
     code: string,
     expectedType?: 'text' | 'video' | 'voice',
@@ -403,7 +413,19 @@ export class UnifiedGateway
       `${typeLabel} - Client ${client.id} trying to join room: ${code}`,
     );
 
-    const room = this.rooms[code];
+    // Check rate limit
+    const rateLimit = await this.checkJoinRateLimit(client.id);
+    if (!rateLimit.allowed) {
+      this.logger.warn(`Rate limit exceeded for client ${client.id}`);
+      return { error: rateLimit.error };
+    }
+
+    let room: Room | null | undefined = this.rooms[code];
+    if (!room) {
+      // Try loading from Redis
+      room = await this.loadRoomFromRedis(code);
+    }
+
     if (!room) {
       this.logger.warn(`${typeLabel} - Room not found: ${code}`);
       return { error: 'Room not found' };
@@ -427,6 +449,9 @@ export class UnifiedGateway
     this.logger.log(
       `${room.type.toUpperCase()} - User joined room: ${code} Users: ${room.users.length}`,
     );
+
+    // Update Redis
+    void this.syncRoomToRedis(code);
 
     this.server
       .to(code)
@@ -476,8 +501,8 @@ export class UnifiedGateway
       }
     }
 
-    // Update room activity
-    this.updateRoomActivity(data.code);
+    // Update Redis
+    void this.syncRoomToRedis(data.code);
 
     this.server.to(data.code).emit('newMessage', message);
     return { success: true };
