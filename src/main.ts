@@ -2,15 +2,30 @@ import 'dotenv/config'; // Load .env file
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as Sentry from '@sentry/node';
+// import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
+import { RedisIoAdapter } from './adapters/redis-io.adapter';
 
 const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
+  // Initialize Sentry before the app
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    integrations: [
+      // nodeProfilingIntegration(),
+    ],
+    // Performance Monitoring
+    tracesSampleRate: 1.0, //  Capture 100% of the transactions
+    // Set sampling rate for profiling - this is relative to tracesSampleRate
+    profilesSampleRate: 1.0,
+  });
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: true }),
@@ -21,7 +36,7 @@ async function bootstrap() {
 
   // Environment configuration
   const port = configService.get<number>('PORT') || 3001;
-  
+
   // Get NODE_ENV with getOrThrow for strict validation
   let nodeEnv = 'development';
   try {
@@ -30,7 +45,7 @@ async function bootstrap() {
     // Default to development if not set
     nodeEnv = 'development';
   }
-  
+
   // Get CORS origins with fallback
   let corsOrigins: string[] = [];
   try {
@@ -50,6 +65,14 @@ async function bootstrap() {
     origin: corsOrigins,
     credentials: true,
   });
+
+  // Enable compression
+  await app.register(import('@fastify/compress'));
+
+  // Enable Redis Adapter for WebSocket scaling
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   // Global middleware - Note: Using Fastify, not Express
   // Content-Length header is handled automatically by Fastify
