@@ -16,9 +16,9 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            pm2 stop mshare-api
             cd /var/www/m_chat_b
             git pull origin main
+            pm2 stop mshare-api
             npm install
             npm run build
             pm2 restart mshare-api
